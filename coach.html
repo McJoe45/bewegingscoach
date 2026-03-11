@@ -152,6 +152,7 @@
   <button class="btn-ghost" onclick="showWeightScreen()">⚖️ Gewicht updaten</button>
   <div class="spacer"></div>
   <div id="home-recent"></div>
+  <button class="btn-ghost" style="margin-top:24px;color:#444;border-color:#222;font-size:12px;" onclick="resetHistory()">🗑 Testdata wissen</button>
 </div>
 
 <!-- GEWICHT -->
@@ -628,6 +629,15 @@ function loadHistory(){
 }
 
 function vibrate(){ if(navigator.vibrate) navigator.vibrate([150,80,150]); }
+
+function resetHistory(){
+  if(confirm('Alle sessiedata wissen? Je gewicht blijft bewaard.')){
+    localStorage.removeItem('coach_history');
+    localStorage.removeItem('coach_plank_best');
+    S.history=[]; S.plankBest=0;
+    updateHome();
+  }
+}
 
 init();
 </script>
