@@ -148,6 +148,7 @@
     <div class="stat-card"><div class="stat-val" id="home-weight">—</div><div class="stat-lbl">kg</div></div>
   </div>
   <button class="btn-giant green" onclick="startSession()">▶ Start thuissessie</button>
+  <button class="btn-giant grey" onclick="showWandelCoach()">🚶 Start wandeling</button>
   <button class="btn-secondary" onclick="loadHistory()">📋 Vorige sessies</button>
   <button class="btn-ghost" onclick="showWeightScreen()">⚖️ Gewicht updaten</button>
   <div class="spacer"></div>
@@ -630,6 +631,205 @@ function loadHistory(){
 
 function vibrate(){ if(navigator.vibrate) navigator.vibrate([150,80,150]); }
 
+// ══════════════════════════════════════════════════════════════
+// WANDELCOACH
+// ══════════════════════════════════════════════════════════════
+
+const ROUTES = [
+  {
+    id: 'honegem',
+    naam: 'Honegem lus',
+    afstand: '5 km',
+    duur: '60 min',
+    beschrijving: 'Via de velden richting Honegem Natuurpunt. Rustig, weinig verkeer.',
+    mapsUrl: 'https://www.google.com/maps/dir/Papestraat+8,+9320+Nieuwerkerken/Honegem+Natuurpunt,+9300+Aalst/@50.9400,3.9990,14z/data=!3m1!4b1!4m14!4m13!1m5!1m1!1s0x47c3a3c35210b7a9:0x1!2m2!1d3.9986!2d50.9362!1m5!1m1!1s0x47c3994438f39e7b:0x3090323d6fe83d21!2m2!1d3.9949!2d50.9480!3e2',
+    kleur: '#c8f542',
+  },
+  {
+    id: 'paddenhoek',
+    naam: 'Paddenhoek lus',
+    afstand: '5 km',
+    duur: '60 min',
+    beschrijving: 'Richting Paddenhoek natuurgebied, langs akkers en kleine wegels.',
+    mapsUrl: 'https://www.google.com/maps/dir/Papestraat+8,+9320+Nieuwerkerken/Paddenhoek,+9300+Aalst/@50.9400,4.0020,14z/data=!3m1!4b1!4m14!4m13!1m5!1m1!1s0x47c3a3c35210b7a9:0x1!2m2!1d3.9986!2d50.9362!1m5!1m1!1s0x47c39b988b16223f:0x42e03fb10382384!2m2!1d4.0079!2d50.9442!3e2',
+    kleur: '#42c8f5',
+  },
+  {
+    id: 'dender',
+    naam: 'Dendervallei lus',
+    afstand: '5 km',
+    duur: '60 min',
+    beschrijving: 'Richting de Dender, langs het water en terug via de veldwegen.',
+    mapsUrl: 'https://www.google.com/maps/dir/Papestraat+8,+9320+Nieuwerkerken/@50.9362,3.9986,14z/data=!3m1!4b1!4m8!4m7!1m5!1m1!1s0x47c3a3c35210b7a9:0x1!2m2!1d3.9986!2d50.9362!1m0!3e2',
+    kleur: '#f5a442',
+  },
+];
+
+let W = {
+  gekozenRoute: null,
+  wandelStart: null,
+  wandelInterval: null,
+  stars: 0,
+};
+
+async function showWandelCoach() {
+  showScreen('screen-wandel');
+  laadWeer();
+  laadRoutes();
+}
+
+async function laadWeer() {
+  const el = document.getElementById('weer-inhoud');
+  try {
+    // Open-Meteo: gratis, geen API key
+    const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=50.936&longitude=3.998&hourly=temperature_2m,precipitation_probability,weathercode,windspeed_10m&timezone=Europe/Brussels&forecast_days=1');
+    const data = await res.json();
+    const uren = data.hourly.time;
+    // Zoek het uur van 17:00
+    const idx = uren.findIndex(t => t.endsWith('T17:00'));
+    if (idx === -1) { el.textContent = 'Weersdata niet beschikbaar.'; return; }
+    const temp = data.hourly.temperature_2m[idx];
+    const regen = data.hourly.precipitation_probability[idx];
+    const wind = data.hourly.windspeed_10m[idx];
+    const weercode = data.hourly.weathercode[idx];
+
+    const icoon = weerIcoon(weercode, regen);
+    const advies = regen > 60 ? '🌧️ Regen verwacht — regenjas meenemen!' : regen > 30 ? '🌦️ Kans op regen — misschien regenjas' : '✅ Goed wandelweer';
+
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;">
+        <div style="font-size:48px">${icoon}</div>
+        <div>
+          <div style="font-size:28px;font-weight:700;font-family:'DM Mono',monospace;color:var(--accent)">${temp}°C</div>
+          <div style="font-size:13px;color:var(--muted)">Wind: ${wind} km/u · Regen: ${regen}%</div>
+        </div>
+      </div>
+      <div style="background:var(--surface2);border-radius:12px;padding:12px;font-size:14px;">${advies}</div>`;
+  } catch(e) {
+    el.textContent = 'Weer kon niet geladen worden.';
+  }
+}
+
+function weerIcoon(code, regen) {
+  if (code === 0) return '☀️';
+  if (code <= 2) return '⛅';
+  if (code <= 3) return '☁️';
+  if (code <= 48) return '🌫️';
+  if (code <= 67) return '🌧️';
+  if (code <= 77) return '❄️';
+  if (code <= 82) return '🌦️';
+  if (code <= 99) return '⛈️';
+  return regen > 40 ? '🌧️' : '⛅';
+}
+
+function laadRoutes() {
+  const container = document.getElementById('route-lijst');
+  container.innerHTML = '';
+  W.gekozenRoute = null;
+  document.getElementById('btn-start-wandel').style.display = 'none';
+
+  ROUTES.forEach(route => {
+    const div = document.createElement('div');
+    div.id = `route-card-${route.id}`;
+    div.style.cssText = `background:var(--surface);border-radius:var(--radius);padding:18px;margin-bottom:12px;border:2px solid transparent;cursor:pointer;transition:border-color .2s;`;
+    div.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <div style="font-size:17px;font-weight:700;">${route.naam}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:13px;color:${route.kleur}">${route.afstand}</div>
+      </div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">${route.beschrijving}</div>
+      <div style="font-size:12px;color:var(--muted)">⏱ ${route.duur} · Start & einde: Papestraat 8</div>`;
+    div.onclick = () => kiesRoute(route.id);
+    container.appendChild(div);
+  });
+}
+
+function kiesRoute(id) {
+  W.gekozenRoute = id;
+  ROUTES.forEach(r => {
+    const card = document.getElementById(`route-card-${r.id}`);
+    card.style.borderColor = r.id === id ? ROUTES.find(x=>x.id===id).kleur : 'transparent';
+  });
+  document.getElementById('btn-start-wandel').style.display = 'block';
+}
+
+function startWandeling() {
+  if (!W.gekozenRoute) return;
+  const route = ROUTES.find(r => r.id === W.gekozenRoute);
+  W.wandelStart = Date.now();
+
+  document.getElementById('wandel-route-naam').textContent = route.naam;
+  document.getElementById('wandel-kaart-link').innerHTML = `
+    <a href="${route.mapsUrl}" target="_blank" style="display:block;background:var(--surface2);border-radius:12px;padding:14px 16px;color:var(--accent2);font-size:15px;text-decoration:none;text-align:center;">
+      🗺️ Open route in Google Maps
+    </a>
+    <div style="font-size:12px;color:var(--muted);text-align:center;margin-top:8px;">Start & einde: Papestraat 8, Nieuwerkerken</div>`;
+
+  // Stopwatch
+  clearInterval(W.wandelInterval);
+  W.wandelInterval = setInterval(() => {
+    const seconden = Math.floor((Date.now() - W.wandelStart) / 1000);
+    const min = Math.floor(seconden / 60);
+    const sec = seconden % 60;
+    document.getElementById('wandel-timer').textContent = `${min}:${String(sec).padStart(2,'0')}`;
+  }, 1000);
+
+  showScreen('screen-wandel-actief');
+}
+
+function stopWandeling() {
+  if (confirm('Wandeling stoppen?')) {
+    clearInterval(W.wandelInterval);
+    showScreen('screen-home');
+  }
+}
+
+function eindeWandeling() {
+  clearInterval(W.wandelInterval);
+  vibrate();
+  // Reset feedback sterren
+  W.stars = 0;
+  document.querySelectorAll('#wandel-stars .star').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.check-btn').forEach(b => b.classList.remove('selected'));
+  document.getElementById('wandel-note').value = '';
+
+  const duur = Math.round((Date.now() - W.wandelStart) / 60000);
+  const route = ROUTES.find(r => r.id === W.gekozenRoute);
+  document.getElementById('wandel-feedback-sub').textContent = `${route.naam} · ${duur} minuten`;
+
+  showScreen('screen-wandel-feedback');
+}
+
+function setWandelStar(n) {
+  W.stars = n;
+  document.querySelectorAll('#wandel-stars .star').forEach((s,i) => s.classList.toggle('active', i < n));
+}
+
+function saveWandelFeedback() {
+  const duur = Math.round((Date.now() - W.wandelStart) / 60000);
+  const route = ROUTES.find(r => r.id === W.gekozenRoute);
+  const dateStr = new Date().toLocaleDateString('nl-BE', {weekday:'long', day:'numeric', month:'long'});
+  const feelings = [...document.querySelectorAll('#screen-wandel-feedback .check-btn.selected')].map(b => b.textContent);
+  const note = document.getElementById('wandel-note').value;
+
+  const entry = {
+    type: 'wandeling',
+    date: dateStr,
+    route: route.naam,
+    afstand: route.afstand,
+    duration: duur,
+    stars: W.stars,
+    feelings,
+    note,
+    weight: S.weight,
+  };
+
+  S.history.push(entry);
+  lsSet('coach_history', S.history);
+  updateHome();
+  showScreen('screen-home');
+}
+
 function resetHistory(){
   if(confirm('Alle sessiedata wissen? Je gewicht blijft bewaard.')){
     localStorage.removeItem('coach_history');
@@ -641,5 +841,74 @@ function resetHistory(){
 
 init();
 </script>
+<!-- WANDELCOACH -->
+<div class="screen" id="screen-wandel">
+  <div class="session-header" style="margin-top:24px;">
+    <div style="font-size:20px;font-weight:700;">🚶 Wandelcoach</div>
+    <button class="btn-abort" onclick="showScreen('screen-home')">← Terug</button>
+  </div>
+
+  <!-- WEER -->
+  <div id="wandel-weer" style="background:var(--surface);border-radius:var(--radius);padding:20px;margin-bottom:16px;">
+    <div class="section-label">Weer om 17:30</div>
+    <div id="weer-inhoud" style="font-size:15px;color:var(--muted)">Laden...</div>
+  </div>
+
+  <!-- ROUTES -->
+  <div class="section-label">Kies een route</div>
+  <div id="route-lijst"></div>
+
+  <div class="spacer"></div>
+  <button class="btn-giant green" id="btn-start-wandel" onclick="startWandeling()" style="display:none">▶ Start wandeling</button>
+</div>
+
+<!-- WANDELING ACTIEF -->
+<div class="screen" id="screen-wandel-actief">
+  <div class="session-header" style="margin-top:24px;">
+    <div class="session-step" id="wandel-route-naam">Route</div>
+    <button class="btn-abort" onclick="stopWandeling()">Stoppen</button>
+  </div>
+
+  <div style="background:var(--surface);border-radius:var(--radius);padding:20px;margin-bottom:16px;">
+    <div class="section-label">Kaart</div>
+    <div id="wandel-kaart-link" style="margin-top:8px;"></div>
+  </div>
+
+  <div style="background:var(--surface);border-radius:var(--radius);padding:20px;margin-bottom:16px;">
+    <div class="section-label">Tijd onderweg</div>
+    <div style="font-family:'DM Mono',monospace;font-size:56px;font-weight:500;color:var(--accent);line-height:1;text-align:center;margin-top:8px;" id="wandel-timer">0:00</div>
+  </div>
+
+  <div class="spacer"></div>
+  <button class="btn-giant green" onclick="eindeWandeling()">✓ Wandeling klaar</button>
+</div>
+
+<!-- WANDELING FEEDBACK -->
+<div class="screen" id="screen-wandel-feedback">
+  <div class="feedback-title">Hoe was<br>de wandeling?</div>
+  <div class="feedback-sub" id="wandel-feedback-sub">Even reflecteren</div>
+  <div class="feedback-question">Algemeen gevoel</div>
+  <div class="star-row" id="wandel-stars">
+    <span class="star" onclick="setWandelStar(1)">★</span>
+    <span class="star" onclick="setWandelStar(2)">★</span>
+    <span class="star" onclick="setWandelStar(3)">★</span>
+    <span class="star" onclick="setWandelStar(4)">★</span>
+    <span class="star" onclick="setWandelStar(5)">★</span>
+  </div>
+  <div class="feedback-question">Hoe verliep het?</div>
+  <div class="feedback-checks">
+    <button class="check-btn" onclick="toggleCheck(this)">Aangenaam</button>
+    <button class="check-btn" onclick="toggleCheck(this)">Vermoeiend</button>
+    <button class="check-btn" onclick="toggleCheck(this)">Te warm</button>
+    <button class="check-btn" onclick="toggleCheck(this)">Te koud</button>
+    <button class="check-btn" onclick="toggleCheck(this)">Regen</button>
+    <button class="check-btn" onclick="toggleCheck(this)">Fris weer</button>
+    <button class="check-btn" onclick="toggleCheck(this)">Trots</button>
+  </div>
+  <div class="feedback-question">Opmerking (optioneel)</div>
+  <textarea id="wandel-note" placeholder="Bijv. mooie route langs de velden..."></textarea>
+  <button class="btn-giant green" onclick="saveWandelFeedback()">Opslaan & afsluiten</button>
+</div>
+
 </body>
 </html>
