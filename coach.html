@@ -635,51 +635,16 @@ function vibrate(){ if(navigator.vibrate) navigator.vibrate([150,80,150]); }
 // WANDELCOACH
 // ══════════════════════════════════════════════════════════════
 
-// Start adres vast
-const START_ADRES = 'Papestraat+8,+9320+Nieuwerkerken,+België';
-
-// Hulpfunctie: bouw een wandel-lus URL in Google Maps
-// sDir = richting tussenpoint (waypoint), wandelen (travelmode=walking)
-function mapsLus(waypoint) {
-  return `https://www.google.com/maps/dir/?api=1&origin=${START_ADRES}&destination=${START_ADRES}&waypoints=${waypoint}&travelmode=walking`;
-}
-
-const ROUTES = [
-  {
-    id: 'honegem',
-    naam: 'Honegem lus',
-    afstand: '±5 km',
-    duur: '60 min',
-    beschrijving: 'Via de velden richting Honegem Natuurpunt. Rustig, weinig verkeer.',
-    mapsUrl: mapsLus('Honegem+Natuurpunt,+9300+Aalst,+België'),
-    kleur: '#c8f542',
-  },
-  {
-    id: 'paddenhoek',
-    naam: 'Paddenhoek lus',
-    afstand: '±5 km',
-    duur: '60 min',
-    beschrijving: 'Richting Paddenhoek natuurgebied, langs akkers en kleine wegels.',
-    mapsUrl: mapsLus('Paddenhoek,+9300+Aalst,+België'),
-    kleur: '#42c8f5',
-  },
-  {
-    id: 'dender',
-    naam: 'Dendervallei lus',
-    afstand: '±5 km',
-    duur: '60 min',
-    beschrijving: 'Richting de Dender, langs het water en terug via de veldwegen.',
-    mapsUrl: mapsLus('Dender,+Nieuwerkerken,+9320+Aalst,+België'),
-    kleur: '#f5a442',
-  },
-];
-
 let W = {
   gekozenRoute: null,
   wandelStart: null,
   wandelInterval: null,
   stars: 0,
+  bewerkRouteId: null,
 };
+
+function getRoutes(){ return lsGet('coach_routes', []); }
+function saveRoutes(r){ lsSet('coach_routes', r); }
 
 async function showWandelCoach() {
   showScreen('screen-wandel');
@@ -690,21 +655,17 @@ async function showWandelCoach() {
 async function laadWeer() {
   const el = document.getElementById('weer-inhoud');
   try {
-    // Open-Meteo: gratis, geen API key
     const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=50.936&longitude=3.998&hourly=temperature_2m,precipitation_probability,weathercode,windspeed_10m&timezone=Europe/Brussels&forecast_days=1');
     const data = await res.json();
     const uren = data.hourly.time;
-    // Zoek het uur van 17:00
     const idx = uren.findIndex(t => t.endsWith('T17:00'));
     if (idx === -1) { el.textContent = 'Weersdata niet beschikbaar.'; return; }
     const temp = data.hourly.temperature_2m[idx];
     const regen = data.hourly.precipitation_probability[idx];
     const wind = data.hourly.windspeed_10m[idx];
     const weercode = data.hourly.weathercode[idx];
-
     const icoon = weerIcoon(weercode, regen);
     const advies = regen > 60 ? '🌧️ Regen verwacht — regenjas meenemen!' : regen > 30 ? '🌦️ Kans op regen — misschien regenjas' : '✅ Goed wandelweer';
-
     el.innerHTML = `
       <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;">
         <div style="font-size:48px">${icoon}</div>
@@ -732,49 +693,101 @@ function weerIcoon(code, regen) {
 }
 
 function laadRoutes() {
+  const routes = getRoutes();
   const container = document.getElementById('route-lijst');
-  container.innerHTML = '';
   W.gekozenRoute = null;
   document.getElementById('btn-start-wandel').style.display = 'none';
+  container.innerHTML = '';
 
-  ROUTES.forEach(route => {
+  if (routes.length === 0) {
+    container.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius);padding:24px;text-align:center;color:var(--muted);font-size:14px;margin-bottom:12px;">
+      Nog geen routes.<br>Voeg je eerste route toe via "+ Route toevoegen".
+    </div>`;
+    return;
+  }
+
+  const kleuren = ['#c8f542','#42c8f5','#f5a442','#f542a8','#a842f5'];
+  routes.forEach((route, i) => {
+    const kleur = kleuren[i % kleuren.length];
     const div = document.createElement('div');
     div.id = `route-card-${route.id}`;
-    div.style.cssText = `background:var(--surface);border-radius:var(--radius);padding:18px;margin-bottom:12px;border:2px solid transparent;cursor:pointer;transition:border-color .2s;`;
+    div.style.cssText = `background:var(--surface);border-radius:var(--radius);padding:18px;margin-bottom:12px;border:2px solid transparent;cursor:pointer;transition:border-color .2s;position:relative;`;
     div.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-        <div style="font-size:17px;font-weight:700;">${route.naam}</div>
-        <div style="font-family:'DM Mono',monospace;font-size:13px;color:${route.kleur}">${route.afstand}</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+        <div style="font-size:17px;font-weight:700;flex:1;padding-right:40px;">${route.naam}</div>
+        <div style="font-family:'DM Mono',monospace;font-size:13px;color:${kleur};white-space:nowrap;">${route.afstand||''}</div>
       </div>
-      <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">${route.beschrijving}</div>
-      <div style="font-size:12px;color:var(--muted)">⏱ ${route.duur} · Start & einde: Papestraat 8</div>`;
-    div.onclick = () => kiesRoute(route.id);
+      ${route.beschrijving?`<div style="font-size:13px;color:var(--muted);margin-bottom:6px;">${route.beschrijving}</div>`:''}
+      <button onclick="event.stopPropagation();bewerkRoute('${route.id}')" style="position:absolute;top:14px;right:50px;background:transparent;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:4px;">✏️</button>`;
+    div.onclick = () => kiesRoute(route.id, kleur);
     container.appendChild(div);
   });
 }
 
-function kiesRoute(id) {
+function kiesRoute(id, kleur) {
   W.gekozenRoute = id;
-  ROUTES.forEach(r => {
+  const routes = getRoutes();
+  const kleuren = ['#c8f542','#42c8f5','#f5a442','#f542a8','#a842f5'];
+  routes.forEach((r, i) => {
     const card = document.getElementById(`route-card-${r.id}`);
-    card.style.borderColor = r.id === id ? ROUTES.find(x=>x.id===id).kleur : 'transparent';
+    if (card) card.style.borderColor = r.id === id ? kleuren[i % kleuren.length] : 'transparent';
   });
   document.getElementById('btn-start-wandel').style.display = 'block';
 }
 
+function showRouteToevoegen() {
+  W.bewerkRouteId = null;
+  document.getElementById('route-form-titel').textContent = 'Route toevoegen';
+  document.getElementById('route-naam-input').value = '';
+  document.getElementById('route-afstand-input').value = '';
+  document.getElementById('route-beschr-input').value = '';
+  document.getElementById('btn-route-verwijder').style.display = 'none';
+  showScreen('screen-route-toevoegen');
+}
+
+function bewerkRoute(id) {
+  const route = getRoutes().find(r => r.id === id);
+  if (!route) return;
+  W.bewerkRouteId = id;
+  document.getElementById('route-form-titel').textContent = 'Route bewerken';
+  document.getElementById('route-naam-input').value = route.naam;
+  document.getElementById('route-afstand-input').value = route.afstand || '';
+  document.getElementById('route-beschr-input').value = route.beschrijving || '';
+  document.getElementById('btn-route-verwijder').style.display = 'block';
+  showScreen('screen-route-toevoegen');
+}
+
+function slaRouteOp() {
+  const naam = document.getElementById('route-naam-input').value.trim();
+  if (!naam) { alert('Geef de route een naam.'); return; }
+  const afstand = document.getElementById('route-afstand-input').value.trim();
+  const beschrijving = document.getElementById('route-beschr-input').value.trim();
+  let routes = getRoutes();
+
+  if (W.bewerkRouteId) {
+    routes = routes.map(r => r.id === W.bewerkRouteId ? {...r, naam, afstand, beschrijving} : r);
+  } else {
+    routes.push({ id: 'r' + Date.now(), naam, afstand, beschrijving });
+  }
+  saveRoutes(routes);
+  showScreen('screen-wandel');
+  laadRoutes();
+}
+
+function verwijderRoute() {
+  if (!W.bewerkRouteId) return;
+  if (!confirm('Route verwijderen?')) return;
+  let routes = getRoutes().filter(r => r.id !== W.bewerkRouteId);
+  saveRoutes(routes);
+  showScreen('screen-wandel');
+  laadRoutes();
+}
+
 function startWandeling() {
   if (!W.gekozenRoute) return;
-  const route = ROUTES.find(r => r.id === W.gekozenRoute);
+  const route = getRoutes().find(r => r.id === W.gekozenRoute);
   W.wandelStart = Date.now();
-
   document.getElementById('wandel-route-naam').textContent = route.naam;
-  document.getElementById('wandel-kaart-link').innerHTML = `
-    <a href="${route.mapsUrl}" target="_blank" style="display:block;background:var(--surface2);border-radius:12px;padding:14px 16px;color:var(--accent2);font-size:15px;text-decoration:none;text-align:center;">
-      🗺️ Open route in Google Maps
-    </a>
-    <div style="font-size:12px;color:var(--muted);text-align:center;margin-top:8px;">Start & einde: Papestraat 8, Nieuwerkerken</div>`;
-
-  // Stopwatch
   clearInterval(W.wandelInterval);
   W.wandelInterval = setInterval(() => {
     const seconden = Math.floor((Date.now() - W.wandelStart) / 1000);
@@ -782,7 +795,6 @@ function startWandeling() {
     const sec = seconden % 60;
     document.getElementById('wandel-timer').textContent = `${min}:${String(sec).padStart(2,'0')}`;
   }, 1000);
-
   showScreen('screen-wandel-actief');
 }
 
@@ -796,16 +808,13 @@ function stopWandeling() {
 function eindeWandeling() {
   clearInterval(W.wandelInterval);
   vibrate();
-  // Reset feedback sterren
   W.stars = 0;
   document.querySelectorAll('#wandel-stars .star').forEach(s => s.classList.remove('active'));
-  document.querySelectorAll('.check-btn').forEach(b => b.classList.remove('selected'));
+  document.querySelectorAll('#screen-wandel-feedback .check-btn').forEach(b => b.classList.remove('selected'));
   document.getElementById('wandel-note').value = '';
-
   const duur = Math.round((Date.now() - W.wandelStart) / 60000);
-  const route = ROUTES.find(r => r.id === W.gekozenRoute);
+  const route = getRoutes().find(r => r.id === W.gekozenRoute);
   document.getElementById('wandel-feedback-sub').textContent = `${route.naam} · ${duur} minuten`;
-
   showScreen('screen-wandel-feedback');
 }
 
@@ -816,24 +825,11 @@ function setWandelStar(n) {
 
 function saveWandelFeedback() {
   const duur = Math.round((Date.now() - W.wandelStart) / 60000);
-  const route = ROUTES.find(r => r.id === W.gekozenRoute);
+  const route = getRoutes().find(r => r.id === W.gekozenRoute);
   const dateStr = new Date().toLocaleDateString('nl-BE', {weekday:'long', day:'numeric', month:'long'});
   const feelings = [...document.querySelectorAll('#screen-wandel-feedback .check-btn.selected')].map(b => b.textContent);
   const note = document.getElementById('wandel-note').value;
-
-  const entry = {
-    type: 'wandeling',
-    date: dateStr,
-    route: route.naam,
-    afstand: route.afstand,
-    duration: duur,
-    stars: W.stars,
-    feelings,
-    note,
-    weight: S.weight,
-  };
-
-  S.history.push(entry);
+  S.history.push({ type:'wandeling', date:dateStr, route:route.naam, afstand:route.afstand, duration:duur, stars:W.stars, feelings, note, weight:S.weight });
   lsSet('coach_history', S.history);
   updateHome();
   showScreen('screen-home');
@@ -856,19 +852,39 @@ init();
     <div style="font-size:20px;font-weight:700;">🚶 Wandelcoach</div>
     <button class="btn-abort" onclick="showScreen('screen-home')">← Terug</button>
   </div>
-
-  <!-- WEER -->
   <div id="wandel-weer" style="background:var(--surface);border-radius:var(--radius);padding:20px;margin-bottom:16px;">
     <div class="section-label">Weer om 17:30</div>
     <div id="weer-inhoud" style="font-size:15px;color:var(--muted)">Laden...</div>
   </div>
-
-  <!-- ROUTES -->
-  <div class="section-label">Kies een route</div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <div class="section-label" style="margin-bottom:0">Kies een route</div>
+    <button class="btn-abort" onclick="showRouteToevoegen()">+ Route toevoegen</button>
+  </div>
   <div id="route-lijst"></div>
-
   <div class="spacer"></div>
   <button class="btn-giant green" id="btn-start-wandel" onclick="startWandeling()" style="display:none">▶ Start wandeling</button>
+</div>
+
+<!-- ROUTE TOEVOEGEN -->
+<div class="screen" id="screen-route-toevoegen">
+  <div class="session-header" style="margin-top:24px;">
+    <div style="font-size:20px;font-weight:700;" id="route-form-titel">Route toevoegen</div>
+    <button class="btn-abort" onclick="showScreen('screen-wandel')">← Terug</button>
+  </div>
+  <div style="background:var(--surface);border-radius:var(--radius);padding:20px;margin-bottom:16px;">
+    <div class="section-label">Naam</div>
+    <input type="text" id="route-naam-input" placeholder="bijv. Veldweg lus" style="width:100%;background:var(--surface2);border:1px solid #333;border-radius:10px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:16px;padding:12px;outline:none;margin-top:8px;" />
+  </div>
+  <div style="background:var(--surface);border-radius:var(--radius);padding:20px;margin-bottom:16px;">
+    <div class="section-label">Afstand</div>
+    <input type="text" id="route-afstand-input" placeholder="bijv. 5 km" style="width:100%;background:var(--surface2);border:1px solid #333;border-radius:10px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:16px;padding:12px;outline:none;margin-top:8px;" />
+  </div>
+  <div style="background:var(--surface);border-radius:var(--radius);padding:20px;margin-bottom:20px;">
+    <div class="section-label">Beschrijving (optioneel)</div>
+    <textarea id="route-beschr-input" placeholder="bijv. Via de velden, rustig en weinig verkeer..." style="width:100%;background:var(--surface2);border:1px solid #333;border-radius:10px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;padding:12px;outline:none;height:80px;resize:none;margin-top:8px;"></textarea>
+  </div>
+  <button class="btn-giant green" onclick="slaRouteOp()" id="btn-route-opslaan">Route opslaan</button>
+  <button class="btn-danger" id="btn-route-verwijder" onclick="verwijderRoute()" style="display:none;width:100%;background:transparent;color:#f54242;border:1px solid #f54242;border-radius:var(--radius);padding:18px;font-family:'DM Sans',sans-serif;font-size:16px;font-weight:600;cursor:pointer;margin-top:4px;">🗑 Route verwijderen</button>
 </div>
 
 <!-- WANDELING ACTIEF -->
@@ -877,17 +893,10 @@ init();
     <div class="session-step" id="wandel-route-naam">Route</div>
     <button class="btn-abort" onclick="stopWandeling()">Stoppen</button>
   </div>
-
-  <div style="background:var(--surface);border-radius:var(--radius);padding:20px;margin-bottom:16px;">
-    <div class="section-label">Kaart</div>
-    <div id="wandel-kaart-link" style="margin-top:8px;"></div>
-  </div>
-
-  <div style="background:var(--surface);border-radius:var(--radius);padding:20px;margin-bottom:16px;">
+  <div style="background:var(--surface);border-radius:var(--radius);padding:28px 20px;margin-bottom:16px;text-align:center;">
     <div class="section-label">Tijd onderweg</div>
-    <div style="font-family:'DM Mono',monospace;font-size:56px;font-weight:500;color:var(--accent);line-height:1;text-align:center;margin-top:8px;" id="wandel-timer">0:00</div>
+    <div style="font-family:'DM Mono',monospace;font-size:72px;font-weight:500;color:var(--accent);line-height:1;margin-top:12px;" id="wandel-timer">0:00</div>
   </div>
-
   <div class="spacer"></div>
   <button class="btn-giant green" onclick="eindeWandeling()">✓ Wandeling klaar</button>
 </div>
