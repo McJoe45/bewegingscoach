@@ -635,32 +635,41 @@ function vibrate(){ if(navigator.vibrate) navigator.vibrate([150,80,150]); }
 // WANDELCOACH
 // ══════════════════════════════════════════════════════════════
 
+// Start adres vast
+const START_ADRES = 'Papestraat+8,+9320+Nieuwerkerken,+België';
+
+// Hulpfunctie: bouw een wandel-lus URL in Google Maps
+// sDir = richting tussenpoint (waypoint), wandelen (travelmode=walking)
+function mapsLus(waypoint) {
+  return `https://www.google.com/maps/dir/?api=1&origin=${START_ADRES}&destination=${START_ADRES}&waypoints=${waypoint}&travelmode=walking`;
+}
+
 const ROUTES = [
   {
     id: 'honegem',
     naam: 'Honegem lus',
-    afstand: '5 km',
+    afstand: '±5 km',
     duur: '60 min',
     beschrijving: 'Via de velden richting Honegem Natuurpunt. Rustig, weinig verkeer.',
-    mapsUrl: 'https://www.google.com/maps/dir/Papestraat+8,+9320+Nieuwerkerken/Honegem+Natuurpunt,+9300+Aalst/@50.9400,3.9990,14z/data=!3m1!4b1!4m14!4m13!1m5!1m1!1s0x47c3a3c35210b7a9:0x1!2m2!1d3.9986!2d50.9362!1m5!1m1!1s0x47c3994438f39e7b:0x3090323d6fe83d21!2m2!1d3.9949!2d50.9480!3e2',
+    mapsUrl: mapsLus('Honegem+Natuurpunt,+9300+Aalst,+België'),
     kleur: '#c8f542',
   },
   {
     id: 'paddenhoek',
     naam: 'Paddenhoek lus',
-    afstand: '5 km',
+    afstand: '±5 km',
     duur: '60 min',
     beschrijving: 'Richting Paddenhoek natuurgebied, langs akkers en kleine wegels.',
-    mapsUrl: 'https://www.google.com/maps/dir/Papestraat+8,+9320+Nieuwerkerken/Paddenhoek,+9300+Aalst/@50.9400,4.0020,14z/data=!3m1!4b1!4m14!4m13!1m5!1m1!1s0x47c3a3c35210b7a9:0x1!2m2!1d3.9986!2d50.9362!1m5!1m1!1s0x47c39b988b16223f:0x42e03fb10382384!2m2!1d4.0079!2d50.9442!3e2',
+    mapsUrl: mapsLus('Paddenhoek,+9300+Aalst,+België'),
     kleur: '#42c8f5',
   },
   {
     id: 'dender',
     naam: 'Dendervallei lus',
-    afstand: '5 km',
+    afstand: '±5 km',
     duur: '60 min',
     beschrijving: 'Richting de Dender, langs het water en terug via de veldwegen.',
-    mapsUrl: 'https://www.google.com/maps/dir/Papestraat+8,+9320+Nieuwerkerken/@50.9362,3.9986,14z/data=!3m1!4b1!4m8!4m7!1m5!1m1!1s0x47c3a3c35210b7a9:0x1!2m2!1d3.9986!2d50.9362!1m0!3e2',
+    mapsUrl: mapsLus('Dender,+Nieuwerkerken,+9320+Aalst,+België'),
     kleur: '#f5a442',
   },
 ];
